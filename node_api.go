@@ -5,10 +5,6 @@ package napi
 */
 import "C"
 
-import (
-	"unsafe"
-)
-
 func CreateAsyncWork(
 	env Env,
 	asyncResource, asyncResourceName Value,
@@ -86,52 +82,4 @@ func GetModuleFileName(env Env) (string, Status) {
 	}
 
 	return C.GoString(cresult), status
-}
-
-func CreateThreadsafeFunction(
-	env Env,
-	fn Value,
-	asyncResource, asyncResourceName Value,
-	maxQueueSize, initialThreadCount int,
-) (ThreadsafeFunction, Status) {
-	var result ThreadsafeFunction
-	status := Status(C.napi_create_threadsafe_function(
-		C.napi_env(env),
-		C.napi_value(fn),
-		C.napi_value(asyncResource),
-		C.napi_value(asyncResourceName),
-		C.size_t(maxQueueSize),
-		C.size_t(initialThreadCount),
-		nil,
-		nil,
-		nil,
-		nil,
-		(*C.napi_threadsafe_function)(unsafe.Pointer(&result)),
-	))
-	return result, status
-}
-
-func CallThreadsafeFunction(
-	fn ThreadsafeFunction,
-) Status {
-	return Status(C.napi_call_threadsafe_function(
-		C.napi_threadsafe_function(fn),
-		nil,
-		C.napi_tsfn_blocking,
-	))
-}
-
-func AcquireThreadsafeFunction(fn ThreadsafeFunction) Status {
-	return Status(C.napi_acquire_threadsafe_function(
-		C.napi_threadsafe_function(fn),
-	))
-}
-
-func ReleaseThreadsafeFunction(
-	fn ThreadsafeFunction,
-) Status {
-	return Status(C.napi_release_threadsafe_function(
-		C.napi_threadsafe_function(fn),
-		C.napi_tsfn_release,
-	))
 }

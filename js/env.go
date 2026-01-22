@@ -2,6 +2,7 @@ package js
 
 import (
 	"fmt"
+	"reflect"
 	"unsafe"
 
 	"github.com/akshayganeshen/napi-go"
@@ -11,60 +12,62 @@ type Env struct {
 	Env napi.Env
 }
 
+func (e Env) Valid() bool {
+	return e.Env != nil
+}
+
 type InvalidValueTypeError struct {
 	Value any
 }
 
 var _ error = InvalidValueTypeError{}
 
-func AsEnv(env napi.Env) Env {
+func WrapEnv(env napi.Env) Env {
 	return Env{
 		Env: env,
 	}
 }
 
-func (e Env) Global() Value {
+func (e Env) GetGlobal() (Object, error) {
 	v, st := napi.GetGlobal(e.Env)
-	if st != napi.StatusOK {
-		panic(napi.StatusError(st))
+	if err := st.AsError(); err != nil {
+		return Object{}, err
 	}
-	return Value{
-		Env:   e,
-		Value: v,
-	}
+
+	return e.WrapValue(v).AsObjectUnsafe(), nil
 }
 
-func (e Env) Null() Value {
+func (e Env) Null() (Value, error) {
 	v, st := napi.GetNull(e.Env)
-	if st != napi.StatusOK {
-		panic(napi.StatusError(st))
+	if err := st.AsError(); err != nil {
+		return Value{}, err
 	}
-	return Value{
-		Env:   e,
-		Value: v,
-	}
+
+	return e.WrapValue(v), nil
 }
 
-func (e Env) Undefined() Value {
+func (e Env) Undefined() (Value, error) {
 	v, st := napi.GetUndefined(e.Env)
-	if st != napi.StatusOK {
-		panic(napi.StatusError(st))
+	if err := st.AsError(); err != nil {
+		return Value{}, err
 	}
-	return Value{
-		Env:   e,
-		Value: v,
-	}
+
+	return e.WrapValue(v), nil
 }
 
-func (e Env) ValueOf(x any) Value {
+func (e Env) ValueOf(x any) (Value, error) {
 	var (
 		v  napi.Value
 		st napi.Status
 	)
 
 	switch xt := x.(type) {
+	case interface{ GetValue() Value }:
+		return xt.GetValue(), nil
+	case interface{ GetValue() (Value, error) }:
+		return xt.GetValue()
 	case Value:
-		return xt
+		return xt, nil
 	case []Value:
 		l := len(xt)
 		v, st = napi.CreateArrayWithLength(e.Env, l)
@@ -79,12 +82,8 @@ func (e Env) ValueOf(x any) Value {
 				break
 			}
 		}
-	case Func:
-		return xt.Value
-	case Callback:
-		return e.FuncOf(xt).Value
-	case *Promise:
-		v, st = xt.Promise.Value, napi.StatusOK
+	case Function:
+		return xt.Value, nil
 	case napi.Value:
 		v, st = xt, napi.StatusOK
 
@@ -119,8 +118,12 @@ func (e Env) ValueOf(x any) Value {
 	case string:
 		v, st = napi.CreateStringUtf8(e.Env, xt)
 	case error:
-		msg := e.ValueOf(xt.Error())
-		v, st = napi.CreateError(e.Env, nil, msg.Value)
+		jsErr, err := e.NewError("", xt.Error())
+		if err != nil {
+			return Value{}, err
+		}
+
+		v = jsErr.Value.Value
 	case []any:
 		l := len(xt)
 		v, st = napi.CreateArrayWithLength(e.Env, l)
@@ -130,65 +133,84 @@ func (e Env) ValueOf(x any) Value {
 
 		for i, xti := range xt {
 			// TODO: Use Value.SetIndex helper
-			vti := e.ValueOf(xti)
+			vti, err := e.ValueOf(xti)
+			if err != nil {
+				return Value{}, err
+			}
+
 			st = napi.SetElement(e.Env, v, i, vti.Value)
 			if st != napi.StatusOK {
 				break
 			}
 		}
+
 	case map[string]any:
-		v, st = napi.CreateObject(e.Env)
-		if st != napi.StatusOK {
-			break
+		obj, err := e.NewObject()
+		if err != nil {
+			return Value{}, err
 		}
 
 		for xtk, xtv := range xt {
 			// TODO: Use Value.Set helper
-			vtk, vtv := e.ValueOf(xtk), e.ValueOf(xtv)
-			st = napi.SetProperty(e.Env, v, vtk.Value, vtv.Value)
-			if st != napi.StatusOK {
-				break
+			vtk, err := e.ValueOf(xtk)
+			if err != nil {
+				return Value{}, err
+			}
+
+			vtv, err := e.ValueOf(xtv)
+			if err != nil {
+				return Value{}, err
+			}
+
+			if err := obj.Set(vtk, vtv); err != nil {
+				return Value{}, err
 			}
 		}
 
+		v = obj.Value.Value
+
 	default:
-		panic(InvalidValueTypeError{x})
+		if reflect.ValueOf(x).Kind() == reflect.Func {
+			fn, err := e.NewFunction(x)
+			if err != nil {
+				return Value{}, err
+			}
+
+			return fn.Value, nil
+		}
+
+		return Value{}, InvalidValueTypeError{x}
 	}
 
-	if st != napi.StatusOK {
-		panic(napi.StatusError(st))
+	if err := st.AsError(); err != nil {
+		return Value{}, err
 	}
 
-	return Value{
-		Env:   e,
-		Value: v,
-	}
+	return e.WrapValue(v), nil
 }
 
-func (e Env) FuncOf(fn Callback) Func {
-	// TODO: Add CreateReference to FuncOf to keep value alive
-	v, st := napi.CreateFunction(
-		e.Env,
-		"",
-		AsCallback(fn),
-	)
-
-	if st != napi.StatusOK {
-		panic(napi.StatusError(st))
+func (e Env) WellKnownSymbol(name string) (Value, error) {
+	symbolValue, err := e.ValueOf("Symbol")
+	if err != nil {
+		return Value{}, err
 	}
 
-	return Func{
-		Value: Value{
-			Env:   e,
-			Value: v,
-		},
+	nameValue, err := e.ValueOf(name)
+	if err != nil {
+		return Value{}, err
 	}
-}
 
-func (e Env) NewPromise() *Promise {
-	var result Promise
-	result.reset(e)
-	return &result
+	global, err := e.GetGlobal()
+	if err != nil {
+		return Value{}, err
+	}
+
+	symbolObj, err := global.Get(symbolValue)
+	if err != nil {
+		return Value{}, err
+	}
+
+	return symbolObj.AsObjectUnsafe().Get(nameValue)
 }
 
 func (err InvalidValueTypeError) Error() string {

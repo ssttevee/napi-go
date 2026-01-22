@@ -7,6 +7,7 @@ package napi
 import "C"
 
 import (
+	"runtime"
 	"unsafe"
 )
 
@@ -147,6 +148,38 @@ func GetValueDouble(env Env, value Value) (float64, Status) {
 		(*C.double)(unsafe.Pointer(&result)),
 	))
 	return result, status
+}
+
+func GetValueInt64(env Env, value Value) (int64, Status) {
+	var result int64
+	status := Status(C.napi_get_value_int64(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.int64_t)(unsafe.Pointer(&result)),
+	))
+	return result, status
+}
+
+func GetValueInt32(env Env, value Value) (int32, Status) {
+	var result int32
+	status := Status(C.napi_get_value_int32(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.int32_t)(unsafe.Pointer(&result)),
+	))
+	return result, status
+}
+
+func GetValueBigintInt64(env Env, value Value) (int64, bool, Status) {
+	var result int64
+	var lossless bool
+	status := Status(C.napi_get_value_bigint_int64(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.int64_t)(unsafe.Pointer(&result)),
+		(*C.bool)(unsafe.Pointer(&lossless)),
+	))
+	return result, lossless, status
 }
 
 func GetValueBool(env Env, value Value) (bool, Status) {
@@ -338,4 +371,155 @@ func GetInstanceData(env Env) (any, Status) {
 	}
 
 	return provider.GetUserData(), status
+}
+
+func CoerceToString(env Env, value Value) (Value, Status) {
+	var result Value
+	status := Status(C.napi_coerce_to_string(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.napi_value)(unsafe.Pointer(&result)),
+	))
+	return result, status
+}
+
+func CoerceToObject(env Env, value Value) (Value, Status) {
+	var result Value
+	status := Status(C.napi_coerce_to_object(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.napi_value)(unsafe.Pointer(&result)),
+	))
+	return result, status
+}
+
+func CoerceToNumber(env Env, value Value) (Value, Status) {
+	var result Value
+	status := Status(C.napi_coerce_to_number(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.napi_value)(unsafe.Pointer(&result)),
+	))
+	return result, status
+}
+
+func CoerceToBool(env Env, value Value) (Value, Status) {
+	var result Value
+	status := Status(C.napi_coerce_to_bool(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.napi_value)(unsafe.Pointer(&result)),
+	))
+	return result, status
+}
+
+func IsError(env Env, value Value) (bool, Status) {
+	var result bool
+	status := Status(C.napi_is_error(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.bool)(unsafe.Pointer(&result)),
+	))
+	return result, status
+}
+
+func IsPromise(env Env, value Value) (bool, Status) {
+	var result bool
+	status := Status(C.napi_is_promise(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.bool)(unsafe.Pointer(&result)),
+	))
+	return result, status
+}
+
+func IsBuffer(env Env, value Value) (bool, Status) {
+	var result bool
+	status := Status(C.napi_is_buffer(
+		C.napi_env(env),
+		C.napi_value(value),
+		(*C.bool)(unsafe.Pointer(&result)),
+	))
+	return result, status
+}
+
+func GetBufferInfo(env Env, value Value) ([]byte, Status) {
+	var data unsafe.Pointer
+	var length C.size_t
+	status := Status(C.napi_get_buffer_info(
+		C.napi_env(env),
+		C.napi_value(value),
+		&data,
+		&length,
+	))
+	return unsafe.Slice((*byte)(data), length), status
+}
+
+func HasProperty(env Env, object Value, key Value) (bool, Status) {
+	var result bool
+	status := Status(C.napi_has_property(
+		C.napi_env(env),
+		C.napi_value(object),
+		C.napi_value(key),
+		(*C.bool)(unsafe.Pointer(&result)),
+	))
+	if status != StatusOK {
+		return false, status
+	}
+
+	return result, status
+}
+
+func HasOwnProperty(env Env, object Value, key Value) (bool, Status) {
+	var result bool
+	status := Status(C.napi_has_own_property(
+		C.napi_env(env),
+		C.napi_value(object),
+		C.napi_value(key),
+		(*C.bool)(unsafe.Pointer(&result)),
+	))
+	if status != StatusOK {
+		return false, status
+	}
+
+	return result, status
+}
+
+func GetProperty(env Env, object Value, key Value) (Value, Status) {
+	var result Value
+	status := Status(C.napi_get_property(
+		C.napi_env(env),
+		C.napi_value(object),
+		C.napi_value(key),
+		(*C.napi_value)(unsafe.Pointer(&result)),
+	))
+	if status != StatusOK {
+		return nil, status
+	}
+
+	return result, status
+}
+
+func CallFunction(env Env, recv Value, fn Value, args []Value) (Value, Status) {
+	defer runtime.KeepAlive(args)
+
+	var argsPtr *C.napi_value
+	if len(args) > 0 {
+		argsPtr = (*C.napi_value)(unsafe.Pointer(&args[0]))
+	}
+
+	var result Value
+	status := Status(C.napi_call_function(
+		C.napi_env(env),
+		C.napi_value(recv),
+		C.napi_value(fn),
+		C.size_t(len(args)),
+		argsPtr,
+		(*C.napi_value)(unsafe.Pointer(&result)),
+	))
+	if status != StatusOK {
+		return nil, status
+	}
+
+	return result, status
 }

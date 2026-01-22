@@ -91,6 +91,18 @@ func (s Status) String() string {
 	return "napi_go_status_unknown"
 }
 
+func (s Status) IsError() bool {
+	return s != StatusOK
+}
+
+func (s Status) AsError() error {
+	if s == StatusOK {
+		return nil
+	}
+
+	return StatusError(s)
+}
+
 func (err StatusError) Error() string {
 	return fmt.Sprintf("napi_status error: %s", Status(err))
 }

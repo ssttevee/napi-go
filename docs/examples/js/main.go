@@ -11,14 +11,14 @@ import (
 
 func init() {
 	entry.Export("getMap", GetMapHandler)
-	entry.Export("getCallback", js.AsCallback(GetCallback))
-	entry.Export("getArray", js.AsCallback(GetArray))
-	entry.Export("getPromiseResolve", js.AsCallback(GetPromiseResolve))
-	entry.Export("getPromiseReject", js.AsCallback(GetPromiseReject))
+	entry.Export("getCallback", js.Callback(GetCallback))
+	entry.Export("getArray", js.Callback(GetArray))
+	entry.Export("getPromiseResolve", js.Callback(GetPromiseResolve))
+	entry.Export("getPromiseReject", js.Callback(GetPromiseReject))
 }
 
 func GetMapHandler(env napi.Env, info napi.CallbackInfo) napi.Value {
-	jsEnv := js.AsEnv(env)
+	jsEnv := js.WrapEnv(env)
 
 	return jsEnv.ValueOf(
 		map[string]any{
